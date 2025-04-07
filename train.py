@@ -1,21 +1,23 @@
 import torch
 import torch.nn as nn
+import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.metrics import classification_report, f1_score
 import numpy as np
-from models.cnn_lstm_model import CNNLSTM
+import matplotlib.pyplot as plt
+from models.cnn_lstm_model import CNNLSTM  # 또는 CustomCNN 등
 
 # 데이터 로드
-X_train = np.load("data/processed/X_train_norm.npy")
-y_train = np.load("data/processed/y_train.npy")
+X_train = np.load("data/augmentation/augmented/X_all_augmented_advanced.npy")
+y_train = np.load("data/augmentation/augmented/y_all_augmented_advanced.npy")
 X_val = np.load("data/processed/X_val_norm.npy")
 y_val = np.load("data/processed/y_val.npy")
 
 # Tensor로 변환
 X_train = torch.tensor(X_train, dtype=torch.float32)
-y_train = torch.tensor(y_train, dtype=torch.float32)
+y_train = torch.tensor(y_train, dtype=torch.long)  # ✅ long으로 변경
 X_val = torch.tensor(X_val, dtype=torch.float32)
-y_val = torch.tensor(y_val, dtype=torch.float32)
+y_val = torch.tensor(y_val, dtype=torch.long)      # ✅ long으로 변경
 
 train_ds = TensorDataset(X_train, y_train)
 val_ds = TensorDataset(X_val, y_val)
@@ -23,103 +25,92 @@ val_ds = TensorDataset(X_val, y_val)
 train_loader = DataLoader(train_ds, batch_size=32, shuffle=True)
 val_loader = DataLoader(val_ds, batch_size=32)
 
-# 클래스별 가중치 계산
-pos_weight = (y_train.shape[0] - y_train.sum(dim=0)) / y_train.sum(dim=0)
-
-# 모델 초기화
+# 디바이스 설정
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# 모델 정의
 model = CNNLSTM().to(device)
 
-criterion_train = nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(device))
-criterion_val = nn.BCEWithLogitsLoss()
-
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
-
-pos_weight = (y_train.shape[0] - y_train.sum(dim=0)) / y_train.sum(dim=0)
-print("pos_weight:", pos_weight)
+# pos_weight 계산 (각 클래스별 양성 샘플 비율 반영)
+# pos_weight = torch.tensor([2.5, 3.1]).to(device)  # ❌ CrossEntropyLoss에서는 불필요
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=3e-5)
 
 # 평가 함수 정의
+from sklearn.metrics import classification_report, f1_score
+
 def evaluate(model, dataloader, device, verbose=True):
     model.eval()
-    all_preds = []
-    all_labels = []
-
+    all_preds, all_labels = [], []
     with torch.no_grad():
         for xb, yb in dataloader:
-            xb, yb = xb.to(device), yb.to(device)
-            preds = model(xb)
-            preds = torch.sigmoid(preds)  # 수동 시그모이드 적용
+            xb = xb.to(device)
+            yb = yb.to(device).long()
+            logits = model(xb)
+            preds = torch.argmax(logits, dim=1)  # 가장 높은 확률의 클래스 선택
             all_preds.append(preds.cpu())
             all_labels.append(yb.cpu())
 
     y_true = torch.cat(all_labels).numpy()
     y_pred = torch.cat(all_preds).numpy()
-    y_pred_bin = (y_pred >= 0.5).astype(int)
 
     if verbose:
         print("\nFinal Evaluation:")
-        print(classification_report(y_true, y_pred_bin, target_names=["Crackle", "Wheeze"]))
+        print(classification_report(
+            y_true, y_pred,
+            target_names=["Normal", "Crackle", "Wheeze", "Both"]
+        ))
 
-    return f1_score(y_true, y_pred_bin, average="macro")
-
-    
+    return f1_score(y_true, y_pred, average="macro")
 
 # 학습 루프
-for epoch in range(20):
+for epoch in range(1):  # 일단 1 epoch만
     model.train()
     total_loss = 0
-    num_batches = 0  # 추가
 
     for xb, yb in train_loader:
-        xb, yb = xb.to(device), yb.to(device)
-        preds = model(xb)
-        loss = criterion_train(preds, yb)
+        xb, yb = xb.to(device), yb.to(device).long()  # ✅ yb long형 유지
+        logits = model(xb)
+        loss = criterion(logits, yb)
 
         optimizer.zero_grad()
         loss.backward()
-
-        for name, param in model.named_parameters():
-            if param.grad is not None:
-                print(f"{name} grad mean: {param.grad.mean()}")  # 평균 gradient 출력
-            else:
-                print(f"{name} grad is None")  # gradient가 None인 경우 출력
-
-
         optimizer.step()
-
         total_loss += loss.item()
-        num_batches += 1  # 배치 개수 세기
 
-    # 평균 loss 출력으로 변경
-    avg_train_loss = total_loss / num_batches
-
-    
-    # Validation loss
+    # Validation
     model.eval()
     val_loss = 0
-    num_val_batches = 0
+    all_val_preds = []
     with torch.no_grad():
         for xb, yb in val_loader:
-            xb, yb = xb.to(device), yb.to(device)
-            preds = model(xb)
-            loss = criterion_val(preds, yb)  # 일반 loss 사용
+            xb, yb = xb.to(device), yb.to(device).long()
+            logits = model(xb)
+            loss = criterion(logits, yb)
             val_loss += loss.item()
-            num_val_batches += 1
+            all_val_preds.append(torch.argmax(logits, dim=1).cpu())  # ✅ softmax, sigmoid 제거
 
-    avg_val_loss = val_loss / num_val_batches
-    print(f"[Epoch {epoch+1}] Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+    # F1
+    val_f1 = evaluate(model, val_loader, device, verbose=True)
 
-# 마지막 Validation 결과 출력
+    print(f"[Epoch {epoch+1}] Train Loss: {total_loss:.4f} | Val Loss: {val_loss:.4f} | F1-score: {val_f1:.4f}")
+
+    # 디버깅 출력
+    sample_input = X_val[:8].to(device)
+    model.eval()
+    with torch.no_grad():
+        logits = model(sample_input)
+        preds = torch.argmax(logits, dim=1)
+        print("\n=== Debug Info ===")
+        print("Logits:\n", logits.cpu())
+        print("Predicted classes:\n", preds.cpu())
+        print("True labels:\n", y_val[:8])
+
+    # 히스토그램
+    plt.hist(torch.cat(all_val_preds).numpy().flatten(), bins=4)
+    plt.title("Predicted Class Distribution (Validation)")
+    plt.grid(True)
+    plt.show()
+
+# 마지막 평가
 _ = evaluate(model, val_loader, device, verbose=True)
-
-# Test 데이터 로드 및 평가
-X_test = np.load("data/processed/X_test_norm.npy")
-y_test = np.load("data/processed/y_test.npy")
-
-X_test = torch.tensor(X_test, dtype=torch.float32)
-y_test = torch.tensor(y_test, dtype=torch.float32)
-
-test_loader = DataLoader(TensorDataset(X_test, y_test), batch_size=32)
-
-# 최종 Test 평가
-_ = evaluate(model, test_loader, device, verbose=True)
