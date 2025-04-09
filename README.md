@@ -10,4 +10,5 @@
 
 `data/resampling.py`
 
-###
+### train_mk3.py 로 enhanced_model.py 의 EnhancedCNNEnsemble 모델 사용해서 학습중
+처음으로 Normal, Wheeze, Crackle 을 정상적으로 분류함! 
