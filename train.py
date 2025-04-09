@@ -5,7 +5,8 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.metrics import classification_report, f1_score
 import numpy as np
 import matplotlib.pyplot as plt
-from models.cnn_lstm_model import CNNLSTM  # 또는 CustomCNN 등
+
+from models.cnn_lstm_model import CNNLSTM
 
 # 데이터 로드
 X_train = np.load("data/augmentation/augmented/X_all_augmented_advanced.npy")
