@@ -20,4 +20,4 @@ venv/
 *.wav
 *.txt
 *.npy
-
+*.pth
