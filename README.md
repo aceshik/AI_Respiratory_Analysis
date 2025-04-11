@@ -136,7 +136,7 @@ self.lstm2 = nn.LSTM(
 
 ---
 
-## 4. 시계열 요약 (Last Timestep)
+## 4.4. 시계열 요약 (Last Timestep)
 
 ```python
 x = x[:, -1, :]  # (B, 256)
