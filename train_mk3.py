@@ -9,7 +9,7 @@ from tqdm import tqdm
 from sklearn.metrics import classification_report, f1_score
 import matplotlib.pyplot as plt
 
-from models.enhanced_model import EnhancedCNNBiLSTM, EnhancedCNNEnsemble, EnhancedCNNDeepBiLSTM
+from models.enhanced_model import EnhancedCNNBiLSTM
 
 # 데이터 로드
 X_train = np.load("data2/X_train.npy")
