@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 
-class EnhancedCNNBiLSTM(nn.Module):
+class ECB(nn.Module):
     def __init__(self, num_classes=3):
-        super(EnhancedCNNBiLSTM, self).__init__()
+        super(ECB, self).__init__()
 
         # CNN block
         self.cnn_block = nn.Sequential(
@@ -48,9 +48,9 @@ class EnhancedCNNBiLSTM(nn.Module):
         return out
 
 
-class EnhancedCNNEnsemble(nn.Module):
+class EnhancedCNNBiLSTM(nn.Module):
     def __init__(self, num_classes=3, dropout=0.3):
-        super(EnhancedCNNEnsemble, self).__init__()
+        super(EnhancedCNNBiLSTM, self).__init__()
 
         # Concatenate input size 128x3
         self.concat_layer = nn.Conv1d(13, 128, kernel_size=1, stride=1)
@@ -73,7 +73,7 @@ class EnhancedCNNEnsemble(nn.Module):
 
         # Conv3 Layer
         self.conv3 = nn.Sequential(
-            nn.Conv1d(128, 256, kernel_size=32, stride=1),
+            nn.Conv1d(128, 256, kernel_size=8, stride=1, padding=0),
             nn.BatchNorm1d(256),
             nn.Dropout(dropout),
             nn.ReLU()
@@ -136,9 +136,9 @@ class EnhancedCNNEnsemble(nn.Module):
 
 
 
-class EnhancedCNNDeepBiLSTM(nn.Module):
+class ECDB(nn.Module):
     def __init__(self, num_classes=3):
-        super(EnhancedCNNDeepBiLSTM, self).__init__()
+        super(ECDB, self).__init__()
 
         # Input projection: 13 → 128
         self.input_proj = nn.Conv1d(in_channels=13, out_channels=128, kernel_size=1)
@@ -221,4 +221,37 @@ class EnhancedCNNDeepBiLSTM(nn.Module):
 
         x = self.fc1(x_last)                  # (B, 128)
         x = self.fc2(x)                       # (B, num_classes)
-        return x        
+        return x
+
+class SimpleCNNBiLSTM(nn.Module):
+    def __init__(self, num_classes=3, dropout=0.3):
+        super(SimpleCNNBiLSTM, self).__init__()
+        
+        # CNN Layer
+        self.cnn = nn.Sequential(
+            nn.Conv1d(13, 64, kernel_size=5, stride=1, padding=2),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.MaxPool1d(kernel_size=2)
+        )
+        
+        # BiLSTM
+        self.lstm = nn.LSTM(input_size=64, hidden_size=128, num_layers=1,
+                            batch_first=True, bidirectional=True, dropout=dropout)
+        
+        # FC
+        self.fc = nn.Sequential(
+            nn.Linear(128*2, 128),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(128, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.cnn(x)             # (B, 64, T)
+        x = x.permute(0, 2, 1)      # (B, T, 64)
+        self.lstm.flatten_parameters()
+        x, _ = self.lstm(x)         # (B, T, 256)
+        x = x[:, -1, :]             # 마지막 timestep
+        x = self.fc(x)
+        return x
