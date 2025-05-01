@@ -14,11 +14,13 @@ from models.remastered_model import RemasteredCNNBiLSTM
 
 # ------------------ 기본 설정 ------------------
 use_wheeze_aug = True
-use_crackle_aug = False
+use_crackle_aug = True
 dropout_rate = 0.35
 batch_size = 32
-epochs = 10
+epochs = 50
 lr = 1e-3
+thresholds_list = [0.44, 0.38, 0.42]  # Normal, Crackle, Wheeze
+class_weights = [0.9, 2.5, 2.5]       # Normal, Crackle, Wheeze
 
 # ------------------ 데이터 로딩 ------------------
 X_train = np.load("data3/split/X_train.npy")
@@ -35,10 +37,6 @@ X_val = (X_val - X_mean) / X_std
 # 길이-비례 정규화
 frame_lens_train = (X_train != 0).any(axis=1).sum(axis=1).reshape(-1, 1, 1)  # shape: (N, 1, 1)
 frame_lens_val = (X_val != 0).any(axis=1).sum(axis=1).reshape(-1, 1, 1)
-
-X_train = X_train / (np.sqrt(np.clip(frame_lens_train, 1, None)) * 0.5 + 0.5)
-X_val = X_val / (np.sqrt(np.clip(frame_lens_val, 1, None)) * 0.5 + 0.5)
-
 
 # 증강 데이터 병합 (metadata 기준으로 split == "train" 인 경우만 포함)
 if use_wheeze_aug:
@@ -73,6 +71,13 @@ val_loader = DataLoader(TensorDataset(X_val, y_val), batch_size=batch_size)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = RemasteredCNNBiLSTM(num_classes=3, dropout=dropout_rate).to(device)
 
+# Force weight reinitialization
+def reset_weights(m):
+    if hasattr(m, 'reset_parameters'):
+        m.reset_parameters()
+
+model.apply(reset_weights)
+
 ## Class weights (no longer used with standard CrossEntropyLoss)
 # label_counts = Counter(y_train.tolist())
 # total = sum(label_counts.values())
@@ -80,7 +85,7 @@ model = RemasteredCNNBiLSTM(num_classes=3, dropout=dropout_rate).to(device)
 # weights = weights / weights.mean()
 # weights = weights.to(device)
 
-weights = torch.tensor([1.2, 2.4, 2.1], dtype=torch.float32).to(device)  # Normal, Crackle, Wheeze
+weights = torch.tensor(class_weights, dtype=torch.float32).to(device)  # Normal, Crackle, Wheeze
 criterion = nn.CrossEntropyLoss(weight=weights)
 optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
 scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3)
@@ -110,7 +115,7 @@ train_f1s = []
 val_f1s = []
 train_losses = []
 val_losses = []
-early_stopper = EarlyStopping()
+early_stopper = EarlyStopping(patience=8)
 best_val_f1 = 0.0
 
 for epoch in range(epochs):
@@ -176,7 +181,7 @@ def predict_with_threshold(logits, thresholds):
             pred[torch.argmax(row)] = 1  # fallback to argmax if none pass threshold
         preds.append(torch.argmax(pred).item())
     return torch.tensor(preds)
-thresholds = torch.tensor([0.42, 0.33, 0.32]).to(device)
+thresholds = torch.tensor(thresholds_list).to(device)
 
 print("\n🔍 수동 Threshold 적용 결과")
 with torch.no_grad():
