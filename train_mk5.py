@@ -19,18 +19,18 @@ from models.remastered_model import RemasteredCNNBiLSTMnoPadding, SimplifiedCNNL
 model_name = RemasteredCNNBiLSTMnoPadding
 use_wheeze_aug = True
 use_crackle_aug = True
-dropout_rate = 0.35
+dropout_rate = 0.3
 batch_size = 32
 epochs = 50
 lr = 1e-4
-thresholds_list = [0.30, 0.35, 0.32]    # Normal, Crackle, Wheeze
-class_weights = [2.0, 2.0, 2.1]         # Normal, Crackle, Wheeze
-gamma_list = [1.5, 1.6, 1.9]            # Normal, Crackle, Wheeze
+thresholds_list = [0.42, 0.52, 0.52]
+class_weights = [1.6, 2.4, 2.5]
+gamma_list = [1.5, 2.0, 1.8]
 
 # 시각화 설정
 show_graph = True
-show_mfcc_grid = False
-show_length_hist = False
+show_mfcc_grid = True
+show_length_hist = True
 
 
 # ------------------ 사전 정의 -------------------
@@ -82,7 +82,7 @@ if use_wheeze_aug:
         aug_y = torch.tensor(torch.load(aug_y_path))
 
         # 원하는 수만큼 랜덤 선택
-        target_n = 500
+        target_n = 400
         selected_indices = random.sample(range(len(aug_X)), target_n)
         aug_X = [aug_X[i] for i in selected_indices]
         aug_y = [int(aug_y[i]) for i in selected_indices]
@@ -118,7 +118,7 @@ if use_crackle_aug:
         combined_y = list(map(int, train_y)) + aug_y
         train_dataset = list(zip(combined_X, combined_y))
 
-        print(f"[INFO] Loaded and merged {target_n} Crackle augmented samples.")
+        print(f"[INFO] Loaded and merged {target_n} Crackle noise-augmented samples.")
     else:
         print("[INFO] Crackle augmentation enabled but no data found.")
 
@@ -220,7 +220,7 @@ train_losses = []
 val_losses = []
 train_accs = []
 val_accs = []
-early_stopper = EarlyStopping(patience=8)
+early_stopper = EarlyStopping(patience=6)
 best_val_f1 = 0.0
 
 for epoch in range(epochs):
