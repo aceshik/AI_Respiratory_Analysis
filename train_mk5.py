@@ -23,9 +23,9 @@ dropout_rate = 0.3
 batch_size = 32
 epochs = 50
 lr = 1e-4
-thresholds_list = [0.42, 0.52, 0.52]
-class_weights = [1.6, 2.4, 2.5]
-gamma_list = [1.5, 2.0, 1.8]
+thresholds_list = [0.28, 0.48, 0.42]
+class_weights = [1.8, 2.1, 2.3]
+gamma_list = [1.5, 1.3, 1.8]
 
 # 시각화 설정
 show_graph = True
@@ -82,7 +82,7 @@ if use_wheeze_aug:
         aug_y = torch.tensor(torch.load(aug_y_path))
 
         # 원하는 수만큼 랜덤 선택
-        target_n = 400
+        target_n = 450
         selected_indices = random.sample(range(len(aug_X)), target_n)
         aug_X = [aug_X[i] for i in selected_indices]
         aug_y = [int(aug_y[i]) for i in selected_indices]
@@ -107,7 +107,7 @@ if use_crackle_aug:
         aug_y = torch.tensor(torch.load(aug_y_path))
 
         # 원하는 수만큼 랜덤 선택
-        target_n = 200
+        target_n = 180
         selected_indices = random.sample(range(len(aug_X)), target_n)
         aug_X = [aug_X[i] for i in selected_indices]
         aug_y = [int(aug_y[i]) for i in selected_indices]
@@ -130,7 +130,7 @@ if use_crackle_aug:
         aug_X2 = torch.load(aug_x_path2)
         aug_y2 = torch.tensor(torch.load(aug_y_path2))
 
-        target_n2 = 200
+        target_n2 = 180
         selected_indices2 = random.sample(range(len(aug_X2)), min(target_n2, len(aug_X2)))
         aug_X2 = [aug_X2[i] for i in selected_indices2]
         aug_y2 = [int(aug_y2[i]) for i in selected_indices2]
@@ -164,15 +164,30 @@ reduced_train_dataset = (
 random.shuffle(reduced_train_dataset)
 train_dataset = reduced_train_dataset
 
+# ----- 전체 데이터 병합 후 재분할 -----
+full_dataset = train_dataset + val_dataset
+X_all, y_all = zip(*full_dataset)
 
-# 클래스별 개수 출력
+from sklearn.model_selection import train_test_split
+
+X_train_new, X_val_new, y_train_new, y_val_new = train_test_split(
+    X_all, y_all,
+    test_size=0.15,
+    stratify=y_all,
+    random_state=42
+)
+
+train_dataset = list(zip(X_train_new, y_train_new))
+val_dataset = list(zip(X_val_new, y_val_new))
+
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, drop_last=True)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
+
+from collections import Counter
 train_labels = [y for _, y in train_dataset]
 val_labels = [y for _, y in val_dataset]
 print(f"[Train Set Class Distribution] {dict(Counter(train_labels))}")
 print(f"[Val Set Class Distribution] {dict(Counter(val_labels))}")
-
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, drop_last=True)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 
 
 # ------------- 모델, 손실함수, 옵티마이저 ------------
