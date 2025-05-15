@@ -13,24 +13,25 @@ import os
 import random
 
 
-from models.remastered_model import RemasteredCNNBiLSTMnoPadding, SimplifiedCNNLSTM
+from models.remastered_model import RemasteredCNNBiLSTMnoPadding, RemasteredCNNBiLSTMwithTransformer
 
 # ------------------ 기본 설정 ------------------
-model_name = RemasteredCNNBiLSTMnoPadding
+model_name = RemasteredCNNBiLSTMwithTransformer
 use_wheeze_aug = True
 use_crackle_aug = True
+
 dropout_rate = 0.3
 batch_size = 32
 epochs = 50
 lr = 1e-4
-thresholds_list = [0.28, 0.48, 0.42]
-class_weights = [1.8, 2.1, 2.3]
-gamma_list = [1.5, 1.3, 1.8]
+thresholds_list = [0.28, 0.48, 0.36]     
+class_weights   = [1.8, 2.4, 2.3]        
+gamma_list      = [1.5, 1.3, 1.8]        
 
 # 시각화 설정
 show_graph = True
-show_mfcc_grid = True
-show_length_hist = True
+show_mfcc_grid = False
+show_length_hist = False
 
 
 # ------------------ 사전 정의 -------------------
