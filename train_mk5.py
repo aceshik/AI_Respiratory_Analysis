@@ -12,11 +12,10 @@ import pandas as pd
 import os
 import random
 
-
-from models.remastered_model import RemasteredCNNBiLSTMnoPadding, RemasteredCNNBiLSTMwithTransformer
+from models.remastered_model import RemasteredCNNBiLSTMnoPadding, RemasteredCNNBiLSTMwithTransformer, RemasteredCNNBiLSTM_MultiKernel_ShallowLSTM
 
 # ------------------ 기본 설정 ------------------
-model_name = RemasteredCNNBiLSTMwithTransformer
+model_name = RemasteredCNNBiLSTM_MultiKernel_ShallowLSTM
 use_wheeze_aug = True
 use_crackle_aug = True
 
@@ -24,14 +23,20 @@ dropout_rate = 0.3
 batch_size = 32
 epochs = 50
 lr = 1e-4
-thresholds_list = [0.28, 0.48, 0.36]     
-class_weights   = [1.8, 2.4, 2.3]        
-gamma_list      = [1.5, 1.3, 1.8]        
+thresholds_list = [0.30, 0.48, 0.38]     
+class_weights   = [2.0, 2.4, 2.6]        
+gamma_list      = [1.5, 1.3, 1.6]        
 
 # 시각화 설정
 show_graph = True
 show_mfcc_grid = False
 show_length_hist = False
+
+# 데이터 개수 컨트롤
+wheeze_aug_count = 600
+crackle_noise_aug_count = 180
+crackle_pitch_aug_count = 180
+normal_count = 500
 
 
 # ------------------ 사전 정의 -------------------
@@ -41,7 +46,7 @@ class FocalLoss(nn.Module):
         super().__init__()
         self.gamma = gamma
         self.weight = weight
-        self.reduction = reduction
+        self.reduction = reduction  
 
     def forward(self, inputs, targets):
         CE_loss = nn.functional.cross_entropy(inputs, targets, weight=self.weight, reduction='none')
@@ -83,7 +88,7 @@ if use_wheeze_aug:
         aug_y = torch.tensor(torch.load(aug_y_path))
 
         # 원하는 수만큼 랜덤 선택
-        target_n = 450
+        target_n = wheeze_aug_count
         selected_indices = random.sample(range(len(aug_X)), target_n)
         aug_X = [aug_X[i] for i in selected_indices]
         aug_y = [int(aug_y[i]) for i in selected_indices]
@@ -108,7 +113,7 @@ if use_crackle_aug:
         aug_y = torch.tensor(torch.load(aug_y_path))
 
         # 원하는 수만큼 랜덤 선택
-        target_n = 180
+        target_n = crackle_noise_aug_count
         selected_indices = random.sample(range(len(aug_X)), target_n)
         aug_X = [aug_X[i] for i in selected_indices]
         aug_y = [int(aug_y[i]) for i in selected_indices]
@@ -131,7 +136,7 @@ if use_crackle_aug:
         aug_X2 = torch.load(aug_x_path2)
         aug_y2 = torch.tensor(torch.load(aug_y_path2))
 
-        target_n2 = 180
+        target_n2 = crackle_pitch_aug_count
         selected_indices2 = random.sample(range(len(aug_X2)), min(target_n2, len(aug_X2)))
         aug_X2 = [aug_X2[i] for i in selected_indices2]
         aug_y2 = [int(aug_y2[i]) for i in selected_indices2]
@@ -156,7 +161,7 @@ class_buckets = defaultdict(list)
 for x, y in train_dataset:
     class_buckets[y].append((x, y))
 
-normal_limit = 600
+normal_limit = normal_count
 reduced_train_dataset = (
     random.sample(class_buckets[0], min(normal_limit, len(class_buckets[0]))) +
     class_buckets[1] +
@@ -211,7 +216,7 @@ scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3)
 
 # EarlyStopping 클래스
 class EarlyStopping:
-    def __init__(self, patience=6):
+    def __init__(self, patience=8):
         self.patience = patience
         self.counter = 0
         self.best_score = None
@@ -236,7 +241,7 @@ train_losses = []
 val_losses = []
 train_accs = []
 val_accs = []
-early_stopper = EarlyStopping(patience=6)
+early_stopper = EarlyStopping(patience=8)
 best_val_f1 = 0.0
 
 for epoch in range(epochs):
