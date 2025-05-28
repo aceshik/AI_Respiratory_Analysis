@@ -17,21 +17,6 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:, :x.size(1), :]
         return x
 
-class SimpleTransformerEncoder(nn.Module):
-    def __init__(self, d_model=256, nhead=4, dim_feedforward=512, dropout=0.1):
-        super().__init__()
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model,
-            nhead=nhead,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            batch_first=True
-        )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=1)
-
-    def forward(self, x, src_key_padding_mask=None):
-        return self.encoder(x, src_key_padding_mask=src_key_padding_mask)
-
 
 class RemasteredCNNBiLSTM(nn.Module):
     def __init__(self, num_classes = 3, dropout = 0.3):
@@ -237,6 +222,22 @@ class AttentionBlock(nn.Module):
         weighted = x * weights  # (B, T, C)
         output = weighted.sum(dim=1)  # (B, C)
         return output, weights
+
+
+class SimpleTransformerEncoder(nn.Module):
+    def __init__(self, d_model=256, nhead=4, dim_feedforward=512, dropout=0.1):
+        super().__init__()
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            batch_first=True
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=1)
+
+    def forward(self, x, src_key_padding_mask=None):
+        return self.encoder(x, src_key_padding_mask=src_key_padding_mask)
 
 
 
@@ -450,24 +451,15 @@ class RemasteredCNNBiLSTM_MultiKernel_ShallowLSTM(nn.Module):
 
         self.concat_layer = nn.Conv1d(13, 128, kernel_size=1, stride=1)
 
-        # Multi-kernel conv1 block
-        self.conv1_3 = nn.Conv1d(128, 32, kernel_size=3, padding=1)
-        self.conv1_5 = nn.Conv1d(128, 32, kernel_size=5, padding=2)
-        self.conv1_7 = nn.Conv1d(128, 32, kernel_size=7, padding=3)
-
+        # Single convolutional layer replaces multi-kernel block
+        self.conv1 = nn.Conv1d(128, 96, kernel_size=5, padding=2)
         self.bn1 = nn.BatchNorm1d(96)
         self.relu1 = nn.ReLU()
         self.dropout1 = nn.Dropout(dropout)
 
-        self.conv2 = nn.Sequential(
-            nn.Conv1d(96, 128, kernel_size=16, stride=2, padding=8),
-            nn.BatchNorm1d(128),
-            nn.Dropout(dropout),
-            nn.ReLU()
-        )
-
+        # Removed conv2 block
         self.conv3 = nn.Sequential(
-            nn.Conv1d(128, 256, kernel_size=8, stride=1, padding=4),
+            nn.Conv1d(96, 256, kernel_size=8, stride=1, padding=4),
             nn.BatchNorm1d(256),
             nn.Dropout(dropout),
             nn.ReLU()
@@ -505,19 +497,13 @@ class RemasteredCNNBiLSTM_MultiKernel_ShallowLSTM(nn.Module):
 
     def forward(self, x, lengths):
         x = self.concat_layer(x)
-
-        x1 = self.conv1_3(x)
-        x2 = self.conv1_5(x)
-        x3 = self.conv1_7(x)
-        x = torch.cat([x1, x2, x3], dim=1)
-
+        x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu1(x)
         x = self.dropout1(x)
 
         lengths = lengths  # conv1는 stride=1이므로 길이 유지
-        x = self.conv2(x)
-        lengths = (lengths + 2 * 8 - 16) // 2 + 1
+        # conv2 removed, so skip one length transformation
         x = self.conv3(x)
         lengths = lengths + 2 * 4 - 8 + 1
 
@@ -535,3 +521,77 @@ class RemasteredCNNBiLSTM_MultiKernel_ShallowLSTM(nn.Module):
         x, _ = self.attention(out)
         x = self.fc1(x)
         return self.fc2(x)
+
+
+
+
+
+
+
+class NewModel(nn.Module):
+    def __init__(self, num_classes=3, dropout=0.25):
+        super().__init__()
+
+        self.concat_layer = nn.Conv1d(13, 128, kernel_size=1, stride=1)
+
+        self.conv1 = nn.Sequential(
+            nn.Conv1d(128, 256, kernel_size=5, padding=2),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Dropout(dropout)
+        )
+
+        self.conv2 = nn.Sequential(
+            nn.Conv1d(256, 320, kernel_size=8, stride=1, padding=4),
+            nn.BatchNorm1d(320),
+            nn.Dropout(dropout),
+            nn.ReLU()
+        )
+
+        self.positional_encoding = PositionalEncoding(320)
+
+        self.lstm1 = nn.LSTM(
+            input_size=320,
+            hidden_size=160,
+            num_layers=1,
+            batch_first=True,
+            dropout=dropout,
+            bidirectional=True
+        )
+
+        self.lstm2 = nn.LSTM(
+            input_size=160 * 2,
+            hidden_size=64,
+            num_layers=1,
+            batch_first=True,
+            dropout=dropout,
+            bidirectional=True
+        )
+
+        self.attention = AttentionBlock(128)
+
+        self.fc2 = nn.Linear(128, num_classes)
+
+    def forward(self, x, lengths):
+        x = self.concat_layer(x)
+        x = self.conv1(x)
+        # Already included in conv1
+
+        lengths = lengths
+        x = self.conv2(x)
+        lengths = lengths + 2 * 4 - 8 + 1
+
+        x = x.permute(0, 2, 1)
+        x = self.positional_encoding(x)
+
+        packed = nn.utils.rnn.pack_padded_sequence(x, lengths, batch_first=True, enforce_sorted=False)
+        packed_out, _ = self.lstm1(packed)
+        out, output_lengths = pad_packed_sequence(packed_out, batch_first=True)
+
+        packed = pack_padded_sequence(out, output_lengths.cpu(), batch_first=True, enforce_sorted=False)
+        packed_out, _ = self.lstm2(packed)
+        out, output_lengths = pad_packed_sequence(packed_out, batch_first=True)
+
+        x, _ = self.attention(out)
+        return self.fc2(x)
+
